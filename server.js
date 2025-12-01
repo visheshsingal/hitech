@@ -35,7 +35,7 @@ app.use(
       "http://localhost:3000",
       "http://localhost:3001",
       "https://hi-tech-homes.vercel.app",
-      "https://hitechhome.vercel.app/",
+      "https://hitechhome.vercel.app",
 
 
       process.env.CLIENT_URL,
