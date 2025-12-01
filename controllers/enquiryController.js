@@ -73,6 +73,7 @@ const getAllEnquiries = async (req, res, next) => {
 
     const enquiries = await Enquiry.find(query)
       .populate('propertyId', 'title price city address images')
+      .populate('adminNotes.admin', 'name email')
       .sort({ createdAt: -1 });
 
     const total = await Enquiry.countDocuments();
@@ -89,6 +90,42 @@ const getAllEnquiries = async (req, res, next) => {
       },
       data: enquiries
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Add an admin note to an enquiry
+ * @route   PUT /api/enquiries/:id/notes
+ * @access  Private (Admin only)
+ */
+const addEnquiryNote = async (req, res, next) => {
+  try {
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      res.status(400);
+      throw new Error('Please provide a non-empty note text');
+    }
+
+    const enquiry = await Enquiry.findById(req.params.id);
+    if (!enquiry) {
+      res.status(404);
+      throw new Error('Enquiry not found');
+    }
+
+    enquiry.adminNotes = enquiry.adminNotes || [];
+    enquiry.adminNotes.push({ text: text.trim(), admin: req.admin._id });
+    await enquiry.save();
+
+    // Populate for response (use single populate call on the document)
+    const populated = await enquiry.populate([
+      { path: 'propertyId', select: 'title price city address' },
+      { path: 'adminNotes.admin', select: 'name email' }
+    ]);
+
+    res.json({ success: true, message: 'Note added', data: populated });
   } catch (error) {
     next(error);
   }
@@ -185,3 +222,4 @@ module.exports = {
   deleteEnquiry,
   getRecentEnquiries
 };
+module.exports.addEnquiryNote = addEnquiryNote;

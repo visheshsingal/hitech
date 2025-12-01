@@ -35,6 +35,14 @@ const enquirySchema = new mongoose.Schema({
     ref: 'Property',
     default: null
   },
+  // Admin-only notes visible to admins in the admin panel
+  adminNotes: [
+    {
+      text: { type: String },
+      admin: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+      createdAt: { type: Date, default: Date.now }
+    }
+  ],
   status: {
     type: String,
     enum: ['pending', 'handled'],
