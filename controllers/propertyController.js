@@ -112,18 +112,30 @@ const createProperty = async (req, res, next) => {
     if (req.files?.images) {
       const imageFiles = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
 
-      if (imageFiles.length > 5) {
-        return res.status(400).json({ success: false, message: 'Maximum 5 images allowed' });
+      if (imageFiles.length > 15) {
+        return res.status(400).json({ success: false, message: 'Maximum 15 images allowed' });
       }
 
       const uploadPromises = imageFiles.map(file => uploadImageFromBuffer(file.buffer));
       uploadedImages = await Promise.all(uploadPromises);
     }
 
-    // Upload video
-    let uploadedVideo = null;
-    if (req.files?.video?.[0]) {
-      uploadedVideo = await uploadVideoFromBuffer(req.files.video[0].buffer);
+    // Upload videos (support multiple uploads under `videos` or single `video` for backward compatibility)
+    let uploadedVideos = [];
+    if (req.files?.videos) {
+      const videoFiles = Array.isArray(req.files.videos) ? req.files.videos : [req.files.videos];
+      if (videoFiles.length > 2) {
+        return res.status(400).json({ success: false, message: 'Maximum 2 videos allowed' });
+      }
+      const uploadPromises = videoFiles.map(file => uploadVideoFromBuffer(file.buffer));
+      uploadedVideos = await Promise.all(uploadPromises);
+    } else if (req.files?.video) {
+      const videoFiles = Array.isArray(req.files.video) ? req.files.video : [req.files.video];
+      if (videoFiles.length > 2) {
+        return res.status(400).json({ success: false, message: 'Maximum 2 videos allowed' });
+      }
+      const uploadPromises = videoFiles.map(file => uploadVideoFromBuffer(file.buffer));
+      uploadedVideos = await Promise.all(uploadPromises);
     }
 
     // Handle optional featured location image upload if admin marked this property
@@ -190,7 +202,8 @@ const createProperty = async (req, res, next) => {
       area: area ? parseFloat(area) : undefined,
       amenities: amenitiesArray,
       images: uploadedImages,
-      video: uploadedVideo,
+      video: uploadedVideos[0] || null,
+      videos: uploadedVideos,
       featured: false,
       featuredLocation: featuredLocation || undefined,
       curatedProperty: curatedProperty || undefined,
@@ -255,11 +268,12 @@ const updateProperty = async (req, res, next) => {
       // only extract removal flags here; other fields were destructured above
       const { removeFeaturedLocation, removeCuratedProperty } = req.body;
 
+
     // Add new images
     if (req.files?.images) {
       const imageFiles = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
-      if (property.images.length + imageFiles.length > 5) {
-        return res.status(400).json({ success: false, message: 'Total images cannot exceed 5' });
+      if (property.images.length + imageFiles.length > 15) {
+        return res.status(400).json({ success: false, message: 'Total images cannot exceed 15' });
       }
       const uploadPromises = imageFiles.map(file => uploadImageFromBuffer(file.buffer));
       const newImages = await Promise.all(uploadPromises);
@@ -316,13 +330,57 @@ const updateProperty = async (req, res, next) => {
           property.curatedProperty.title = curatedPropertyTitle;
         }
       }
-    if (req.files?.video?.[0]) {
-      if (property.video?.publicId) {
-        await deleteFile(property.video.publicId, 'video');
+    // Handle videos: support `existingVideos` JSON from client and new uploads under `videos` or `video`.
+    // Parse existingVideos if provided (client sends JSON array of remaining video objects)
+    let remainingExistingVideos = [];
+    if (req.body?.existingVideos) {
+      try {
+        const parsed = JSON.parse(req.body.existingVideos);
+        if (Array.isArray(parsed)) {
+          // Normalize to plain objects with only url and publicId
+          remainingExistingVideos = parsed.map((v) => ({ url: v.url, publicId: v.publicId }));
+        } else {
+          remainingExistingVideos = [];
+        }
+      } catch (e) {
+        remainingExistingVideos = [];
       }
-      const newVideo = await uploadVideoFromBuffer(req.files.video[0].buffer);
-      property.video = newVideo;
+    } else if (property.videos && property.videos.length > 0) {
+      // If client didn't send existingVideos, default to current stored videos
+      remainingExistingVideos = property.videos.map((v) => ({ url: v.url, publicId: v.publicId }));
+    } else if (property.video) {
+      remainingExistingVideos = [{ url: property.video.url, publicId: property.video.publicId }];
     }
+
+    // Determine new uploaded videos (if any)
+    let newlyUploadedVideos = [];
+    if (req.files?.videos) {
+      const files = Array.isArray(req.files.videos) ? req.files.videos : [req.files.videos];
+      if (remainingExistingVideos.length + files.length > 2) {
+        return res.status(400).json({ success: false, message: 'Total videos cannot exceed 2' });
+      }
+      const uploadPromises = files.map(f => uploadVideoFromBuffer(f.buffer));
+      newlyUploadedVideos = await Promise.all(uploadPromises);
+    } else if (req.files?.video) {
+      const files = Array.isArray(req.files.video) ? req.files.video : [req.files.video];
+      if (remainingExistingVideos.length + files.length > 2) {
+        return res.status(400).json({ success: false, message: 'Total videos cannot exceed 2' });
+      }
+      const uploadPromises = files.map(f => uploadVideoFromBuffer(f.buffer));
+      newlyUploadedVideos = await Promise.all(uploadPromises);
+    }
+
+    // Delete any removed videos from Cloudinary (existing in DB but not in remainingExistingVideos)
+    const previousVideos = property.videos && property.videos.length ? property.videos : (property.video ? [property.video] : []);
+    const remainingPublicIds = remainingExistingVideos.map(v => v.publicId).filter(Boolean);
+    const toDelete = previousVideos.filter(v => v.publicId && !remainingPublicIds.includes(v.publicId)).map(v => v.publicId).filter(Boolean);
+    if (toDelete.length > 0) {
+      await deleteMultipleFiles(toDelete, 'video');
+    }
+
+    // Final videos array
+    property.videos = [...(remainingExistingVideos || []), ...newlyUploadedVideos];
+    property.video = property.videos[0] || null;
 
     await property.save();
 
@@ -354,7 +412,11 @@ const deleteProperty = async (req, res, next) => {
       const publicIds = property.images.map(img => img.publicId).filter(Boolean);
       if (publicIds.length > 0) await deleteMultipleFiles(publicIds, 'image');
     }
-    if (property.video?.publicId) {
+    // Delete videos (support multiple)
+    if (property.videos && property.videos.length > 0) {
+      const videoIds = property.videos.map(v => v.publicId).filter(Boolean);
+      if (videoIds.length > 0) await deleteMultipleFiles(videoIds, 'video');
+    } else if (property.video?.publicId) {
       await deleteFile(property.video.publicId, 'video');
     }
 

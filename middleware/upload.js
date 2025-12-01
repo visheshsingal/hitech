@@ -8,7 +8,7 @@ const fileFilter = (req, file, cb) => {
   if (file.fieldname === "images") {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files are allowed for images"), false);
-  } else if (file.fieldname === "video") {
+  } else if (file.fieldname === "video" || file.fieldname === "videos") {
     if (file.mimetype.startsWith("video/")) cb(null, true);
     else cb(new Error("Only video files are allowed for videos"), false);
   } else if (file.fieldname === "featuredLocationImage") {
@@ -30,10 +30,11 @@ const uploadPropertyMedia = multer({
     fileSize: 50 * 1024 * 1024, // 50MB limit for safety
   },
 }).fields([
-  { name: "images", maxCount: 5 },
+  { name: "images", maxCount: 15 },
   { name: "video", maxCount: 1 },
+  { name: "videos", maxCount: 2 },
   { name: "featuredLocationImage", maxCount: 1 },
-    { name: "curatedPropertyImage", maxCount: 1 },
+  { name: "curatedPropertyImage", maxCount: 1 },
 ]);
 
 module.exports = { uploadPropertyMedia };

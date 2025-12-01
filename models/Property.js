@@ -88,14 +88,31 @@ const propertySchema = new mongoose.Schema(
       default: [],
       validate: {
         validator: function (arr) {
-          return arr.length <= 5;
+          return arr.length <= 15;
         },
-        message: "Cannot upload more than 5 images",
+        message: "Cannot upload more than 15 images",
       },
     },
+    // Legacy single-video field kept for backward compatibility.
     video: {
       url: String,
       publicId: String,
+    },
+    // New videos array to support multiple videos (up to 2)
+    videos: {
+      type: [
+        {
+          url: String,
+          publicId: String,
+        },
+      ],
+      default: [],
+      validate: {
+        validator: function (arr) {
+          return arr.length <= 2;
+        },
+        message: "Cannot upload more than 2 videos",
+      },
     },
     status: {
       type: String,
